@@ -81,6 +81,9 @@ angular.module('editorApp')
 			BasicBlockService.createPort(newPort);
 			$uibModalInstance.close();
 		}
+        $scope.close = function(){
+            $uibModalInstance.close();
+        }
 	}])
 	.controller('DeletePortFormCtrl', ['$scope','$uibModalInstance','BasicBlockService', function($scope, $uibModalInstance, BasicBlockService){
 		$scope.portType = BasicBlockService.getPortType();
@@ -139,8 +142,7 @@ angular.module('editorApp')
 				type: $scope.selectedType
 			}
 			// TODO: can combine these two. Is it a good practice?
-			BasicBlockService.setNewInternal(internal);
-			BasicBlockService.createInternal();
+			BasicBlockService.createInternal(internal);
 
 			$uibModalInstance.close('Closing Modal!');
 		}
@@ -161,20 +163,46 @@ angular.module('editorApp')
 	}])
 	.controller('NewStateFormCtrl', ['$scope', '$uibModalInstance', 'StateMachineService', 'CompositeBlockService', 'ModalService', function($scope, $uibModalInstance, StateMachineService, CompositeBlockService, ModalService){
 		var requestType = ModalService.getType();
+		var initialName = CompositeBlockService.getMovingBlock().name;
+		var sameNames = 0;
+		var allSimilarNames = [];
+		var numberArray = [];
 		$scope.formName = '';
 		$scope.initialState = false;
 		$scope.isInit = false;
-		if(requestType === 'Instance'){
-			$scope.type = 'Instance';
-			$scope.initialState = false;
-		}
+		$scope.blockName = '';
 		if(requestType === 'State'){
 			$scope.type = 'State';
 			$scope.initialState = true;
 		}
+		if(requestType === 'Instance'){
+			$scope.type = 'Instance';
+			$scope.initialState = false;
+			var cells = CompositeBlockService.getCells();
+			_.each(cells, function(c){
+				if(c.isLink() || c.get('iota-type') !== 'NetworkBlockInstance') return;
+				if(c.attr('.label/text').substring(0,15) === 'NewInstanceOf ('){
+					if(c.attr('.label/text').substring(15, 16 + initialName.length -1) === initialName)
+					allSimilarNames.push(c.attr('.label/text'));
+					sameNames ++;
+				}
+			})
+			$scope.formName = 'NewInstanceOf (' + CompositeBlockService.getMovingBlock().name + ')';
+			_.each(allSimilarNames, function(sn){
+				var tempVal = parseInt(sn.substring($scope.formName.length + 1).split(')')[0]);
+				numberArray.push(tempVal);
+			})
+			if (numberArray){
+				for(var i = 0; i < 99; i++){
+					if (numberArray.indexOf(i) === -1) { 
+						$scope.formName += '(' + (i).toString() + ')';
+						break;
+					}
+				}
+			}
+		}
 		$scope.ok = function(){
 			if(requestType === 'State'){
-				console.log($scope.isInit);
 				StateMachineService.setNewStateInfo($scope.formName, $scope.isInit);
 				StateMachineService.createNewState();
 			}
@@ -254,7 +282,12 @@ angular.module('editorApp')
 		}
 	}])
 	.controller('DeployFormCtrl', ['$scope', '$uibModalInstance', 'ProjectService', function($scope, $uibModalInstance, ProjectService){
+		$scope.deployDisabled = true;
 		$scope.keys = ProjectService.getDeployKeys();
+		$scope.blockName = ProjectService.getCurrentBlock().name;
+		$scope.$watch('theKey', function(newVal, oldVal){
+			if(newVal) $scope.deployDisabled = false;
+		})
 		$scope.ok = function(){
 			ProjectService.deployBlock($scope.theKey);
 			$uibModalInstance.close('closing modal');
@@ -262,17 +295,6 @@ angular.module('editorApp')
 		$scope.cancel = function(){
 			$uibModalInstance.dismiss('cancel');
 		};
-	}])
-	.controller('NewConstantFormCtrl', ['$scope', '$uibModalInstance', 'ProjectService', 'CompositeBlockService', function($scope, $uibModalInstance, ProjectService, CompositeBlockService){
-		$scope.constantValue = '';
-		$scope.ok = function(){
-			CompositeBlockService.setCurrentConstantName($scope.constantValue);
-			$uibModalInstance.close('closing modal');
-		}
-		$scope.cancel = function(){
-			CompositeBlockService.deleteLink();
-			$uibModalInstance.dismiss('cancel');
-		}
 	}])
 	.controller('exportBlocksModalCtrl',  ['$scope', '$uibModalInstance', 'ImportExportService', 'ProjectService', function($scope, $uibModalInstance, ImportExportService, ProjectService){
 		$scope.theProject
@@ -298,31 +320,153 @@ angular.module('editorApp')
 		}
 	}])
 	.controller('CopyBlockCtrl', ['$scope', '$uibModalInstance', 'ProjectService', 'BlockService', function($scope,  $uibModalInstance, ProjectService, BlockService){
-		$scope.blockName = ProjectService.getCurrentBlockName()
+		$scope.blockName = ProjectService.getCopyingBlock().name + ' (copy)';
 		$scope.copy = function(){
-			BlockService.copyBlock($scope.blockName, ProjectService.getCurrentBlockId());
+			BlockService.copyBlock($scope.blockName, ProjectService.getCopyingBlock());
 			$uibModalInstance.close('closing modal');
 		}
 		$scope.cancel = function(){
 			$uibModalInstance.dismiss('cancel');
 		}
 	}])
-	.controller('blockDescriptionCtrl', ['$scope', '$uibModalInstance', 'ProjectService', '$sce', function($scope, $uibModalInstance, ProjectService, $sce){
+	.controller('blockDescriptionCtrl', ['$scope', '$uibModalInstance', 'ProjectService', function($scope, $uibModalInstance, ProjectService){
 		$scope.blockName = ProjectService.getCurrentBlock().name;
-		$scope.blockDescription = $sce.trustAsHtml(ProjectService.getCurrentBlock().description);
+		$scope.blockDescription = ProjectService.getCurrentBlock().description;
 		$scope.closeModal = function(){
 			$uibModalInstance.dismiss('dismiss');
 		}
 	}])
     .controller('projectSettingCtrl', ['$scope', '$rootScope', '$uibModalInstance', 'ProjectService', function($scope, $rootScope, $uibModalInstance, ProjectService){
-        $scope.showBlockId = false;
-        $scope.showTooltip = false;
-        $scope.save = function(){
-            var data = { BlockIdOn: $scope.showBlockId, tooltipOn: $scope.showTooltip};
-            $rootScope.$broadcast("SETTING", data);
-            $uibModalInstance.dismiss('dismiss');
-        }
-		$scope.cancel = function(){
-			$uibModalInstance.dismiss('dismiss');
+        $scope.setting = {
+			blockIdOn: false,
+			tooltipOn: false, 
+			descriptionOn: false,
 		}
-	}])
+		var currentSetting = ProjectService.getAccountSetting();
+        if(!currentSetting){
+			//Do nothing!
+        }else{
+            currentSetting = JSON.parse(currentSetting);
+			_.each(Object.keys(currentSetting), function(o){
+				_.each(Object.keys($scope.setting), function(s){
+					if (o === s){
+						$scope.setting[s] = currentSetting[o];
+						return;
+					}else if(currentSetting[s] === undefined){
+						currentSetting[s] = false;
+						return;
+					}
+				})
+
+			})
+        }
+		$scope.showWarning = function(){
+			if ($scope.setting.descriptionOn && !currentSetting.descriptionOn) $scope.pageReloadWarning = true;
+			else $scope.pageReloadWarning = false;
+		}
+        $scope.save = function(){
+			if(_.isEqual(currentSetting, $scope.setting)){
+				$uibModalInstance.dismiss('dismiss');
+				return;
+			}else{
+				$scope.setting = JSON.stringify($scope.setting)
+				ProjectService.setNewAccountSetting($scope.setting);
+				$uibModalInstance.dismiss('dismiss');
+			}
+        }
+ 		$scope.cancel = function(){
+ 			 $uibModalInstance.dismiss('dismiss');
+ 		}
+ 	}])
+    .controller('editPortFormCtrl', ['$scope','$uibModalInstance','BasicBlockService', 'toastr', function($scope, $uibModalInstance, BasicBlockService, toastr){
+        $scope.type = BasicBlockService.getPortType();
+        $scope.currentBlock = BasicBlockService.getBasicBlock();
+        $scope.types = ['UNSIGNED', 'INT', 'FLOAT', 'DOUBLE', 'BOOLEAN', 'STRING', 'ANY'];
+        $scope.buffers = [0,1,2,3,4,5,6,7,8,9];
+        var index;
+        if ($scope.type === 'Output'){
+            $scope.ports = $scope.currentBlock.outputs;
+            $scope.isInput = false;
+        }else{            
+            $scope.ports = $scope.currentBlock.inputs; 
+            $scope.isInput = true;
+        }
+        $scope.dCopyCurrent = function (port, curIndex){
+            for(var i = 0; i < $scope.ports.length; i++){
+                $scope.ports[i].$edit = false;
+            }
+            index = curIndex;
+            port.$edit = true;
+            $scope.dCopyPort = JSON.parse(JSON.stringify(port))
+        }        
+        $scope.closeModal = function (){
+            if(typeof index !== 'undefined'){
+                $scope.ports[index] = $scope.dCopyPort;
+                $scope.ports[index].$edit = false;
+            }
+            $uibModalInstance.close('Closing Modal!');
+        }
+        $scope.savePortChanges = function (port){
+            if(!hasChanged(port)) return;
+            if($scope.type === 'Output'){
+                var newPort = {
+                    input: $scope.isInput,
+                    name: $scope.currentBlock.outputs[this.$index].name,
+                    type: $scope.currentBlock.outputs[this.$index].type,
+                    initialValue: $scope.currentBlock.outputs[this.$index].initialValue,
+                    buffered: parseInt($scope.currentBlock.outputs[this.$index].buffered)
+                }
+                if (!(validation(newPort))){
+                BasicBlockService.reloadBlock(ProjectService.getProjectId(), ProjectService.getCurrentBlockId());
+                }else{
+                    BasicBlockService.updatePort(newPort,  $scope.currentBlock.outputs[this.$index].id, $scope.dCopyPort.name);
+                }
+            }else{
+                var newPort = {
+                    input: $scope.isInput,
+                    name: $scope.currentBlock.inputs[this.$index].name,
+                    type: $scope.currentBlock.inputs[this.$index].type,
+                    initialValue: $scope.currentBlock.inputs[this.$index].initialValue,
+                    buffered: parseInt($scope.currentBlock.inputs[this.$index].buffered)
+                }
+                if (!(validation(newPort))){
+                    BasicBlockService.reloadBlock(ProjectService.getProjectId(), ProjectService.getCurrentBlockId());
+                }else{
+                    BasicBlockService.updatePort(newPort,  $scope.currentBlock.inputs[this.$index].id, $scope.dCopyPort.name);
+                }
+            }
+            port.$edit = false;
+        }
+        var validation = function (port){
+            if(port.name === '' || typeof port.name === 'undefined'){
+				toastr.error('The port name cannot be empty.', 'Error!');
+				return false;
+			}else{
+                return true;
+            }
+        }
+        var hasChanged = function(port){
+            port.$edit = false;
+            var o1 = JSON.parse(JSON.stringify(port));
+            var o2 = JSON.parse(JSON.stringify($scope.dCopyPort));
+            delete o1.$edit;
+            delete o2.$edit;
+            var arr1 = [];  
+            var arr2 = [];
+            var convertToArray = function(thisObj, thisArray){
+              for (var key in thisObj){
+                if(typeof thisObj[key] !== 'string'){
+                  thisObj[key] = thisObj[key].toString();
+                }
+                thisArray.push(thisObj[key]);
+              }
+            }
+            convertToArray(o1, arr1);
+            convertToArray(o2, arr2);
+            if(_.isEqual(arr1, arr2)){
+              return false;
+            }else{
+              return true;
+            }
+        }
+    }])

@@ -4,6 +4,7 @@ editorApp.controller('SidebarCtrl',
   '$scope',
   '$rootScope',
   '$timeout',
+  '$sce',
   'ProjectService',
   'urls',
   'BlockService',
@@ -17,6 +18,7 @@ editorApp.controller('SidebarCtrl',
     $scope,
     $rootScope,
     $timeout,
+    $sce,
     ProjectService,
     urls,
     BlockService,
@@ -27,6 +29,7 @@ editorApp.controller('SidebarCtrl',
     AlertService,
     ImportExportService
   ){
+  $scope.dropAllowed = false;
   $rootScope.selectedBlockName = '';
   $scope.basicBlocks = [];
   $scope.compositeBlocks = [];
@@ -47,15 +50,10 @@ editorApp.controller('SidebarCtrl',
   $scope.accountBasicBlocks = [];
   $scope.accountCompositeBlocks = [];
   $scope.searchBlock = {};
-  $scope.blockTags = [];
-  $scope.displayBlckId = false;      
+  $scope.displayBlckId = false;
   window.addEventListener('load', function(){
     ProjectService.getProject($scope.projectId);
   });
-  var newTag = "";
-  var taggingRecord = false;
-  var startPosition = 0;
-  var endPosition = 0;      
   $scope.$on('LOAD_PROJECT', function(){
     $scope.showDeleteButton = false;
     $scope.showEditButton = false;
@@ -64,6 +62,7 @@ editorApp.controller('SidebarCtrl',
     $scope.compositeBlocks = [];
     $scope.theProject = ProjectService.getProjectData();
     $scope.projectName = $scope.theProject.name;
+    setAccountSettings();
     _.each($scope.theProject.blocks, function(b){
       if (b.type === 'Composite') $scope.compositeBlocks.push(b);
       if (b.type === 'Basic') $scope.basicBlocks.push(b);
@@ -76,20 +75,29 @@ editorApp.controller('SidebarCtrl',
     //TODO: this method is mustly duplicated, a better approach needed
     //it was urgnet so I didn't have time to figure a way to do it more efficiently
     if(ImportExportService.getEmbeddableBlocks().commonBlocks){
+      $scope.commonBasicBlocks = [];
+      $scope.commonCompositeBlocks = [];
       _.each(ImportExportService.getEmbeddableBlocks().commonBlocks, function(b){
+        if(b.description) b.description = $sce.trustAsHtml(b.description);
         if (b.type === 'Basic' && b.controlProjectId !== $scope.projectId) $scope.commonBasicBlocks.push(b);
         else if (b.type === 'Composite' && b.controlProjectId !== $scope.projectId) $scope.commonCompositeBlocks.push(b);
       })
     }
     //for an odd reason api returns null for marketplace blocks if empty while for the rest it just returns an empty array!
     if(ImportExportService.getEmbeddableBlocks().marketplaceBlocks || ImportExportService.getEmbeddableBlocks().marketplaceBlocks === null){
+      $scope.marketBasicBlocks = [];
+      $scope.marketCompositeBlocks = [];
       _.each(ImportExportService.getEmbeddableBlocks().marketplaceBlocks, function(b){
+        if(b.description) b.description = $sce.trustAsHtml(b.description);
         if (b.type === 'Basic' && b.controlProjectId !== $scope.projectId) $scope.marketBasicBlocks.push(b);
         else if (b.type === 'Composite' && b.controlProjectId !== $scope.projectId) $scope.marketCompositeBlocks.push(b);
       })
     }
     if(ImportExportService.getEmbeddableBlocks().accountCreatedBlocks){
+      $scope.accountBasicBlocks = [];
+      $scope.accountCompositeBlocks = [];
       _.each(ImportExportService.getEmbeddableBlocks().accountCreatedBlocks, function(b){
+        if(b.description) b.description = $sce.trustAsHtml(b.description);
         if (b.type === 'Basic' && b.controlProjectId !== $scope.projectId) $scope.accountBasicBlocks.push(b);
         else if (b.type === 'Composite' && b.controlProjectId !== $scope.projectId) $scope.accountCompositeBlocks.push(b);
       })
@@ -149,9 +157,6 @@ editorApp.controller('SidebarCtrl',
   $scope.compileProject = function(){
     ProjectService.compileProject();
   }
-  $scope.projectSetting = function (){
-      ModalService.openModal('projectSetting');
-  }
   $scope.showAlgorithm = function(){
     $scope.$emit('SHOW_ALGORITHM');
   }
@@ -195,54 +200,6 @@ editorApp.controller('SidebarCtrl',
     StateMachineService.setBlockId(selectedBlockId, obj);
     showStateMachine();
   }
-  $scope.treeSelected = function(obj, alg){
-    if (obj.controlProjectId !== $scope.projectId){
-      $scope.$emit('DISABLE_BLOCK_EDIT');
-    } else {
-      $scope.$emit('ENABLE_BLOCK_EDIT');
-    }
-    if (typeof obj === 'undefined') return;
-    if(!clickable) return;
-    clickable = false;
-    var selectedAlgorithmId;
-    var getAlgorithm = function(){
-      $scope.showAlgorithm();
-      getBasic(obj);
-      selectedAlgorithmId = alg.id
-      BasicBlockService.setCurrentAlgorithm(selectedAlgorithmId);
-      BasicBlockService.loadAlgorithm();
-    };
-    if(obj.type === 'Basic' && typeof alg === 'undefined'){
-      getBasic(obj);
-      $timeout(function(){
-        getStateMachine(obj);
-      }, 100);
-      if($scope.projectId === obj.controlProjectId) ProjectService.setTopLevelBlock(selectedBlockId);
-    }else if(obj.type === 'Composite' ){
-      getBasic(obj);
-      getComposite(obj);
-      if ($scope.projectId === obj.controlProjectId) ProjectService.setTopLevelBlock(selectedBlockId);
-    }else if(obj.type === 'Basic' && typeof alg !== 'undefined'){
-      getAlgorithm();
-    }else{
-      //Do nothing!
-    };
-    $timeout(function () {
-      clickable = true;
-    }, 1000);
-  };
-  $rootScope.$on('BLOCK_CREATED', function(){
-    var TheNewBlock = BlockService.getNewBlock();
-    var tempBlockIdSt = 'block_' + TheNewBlock.id.toString();
-    var newBlockObj = {
-      id: tempBlockIdSt,
-      type: TheNewBlock.type,
-      text: TheNewBlock.name,
-      blockId: TheNewBlock.id,
-      $$hashKey: ''
-    }
-    $scope.treeSelected(newBlockObj);
-  })
   $scope.openModal = function(modalType){
     $scope.showEditButton = false;
     ModalService.openModal(modalType);
@@ -254,35 +211,26 @@ editorApp.controller('SidebarCtrl',
     ModalService.openModal('exportBlocks');
   }
   $scope.startDrag = function(evt){
-    CompositeBlockService.setMovingBlock(parseInt(evt.target.id));
+    var movingBlock = {
+      id: parseInt(evt.target.id),
+      name: ''
+    }
+    var allBlocks = [].concat(ImportExportService.getEmbeddableBlocks().accountCreatedBlocks, ImportExportService.getEmbeddableBlocks().commonBlocks, ImportExportService.getEmbeddableBlocks().marketplaceBlocks);
+    _.each(allBlocks, function(b){
+      if (b.id === movingBlock.id){
+        movingBlock.name = b.name;
+        return;
+      }
+    })
+    CompositeBlockService.setMovingBlock({ id: movingBlock.id,  name: movingBlock.name });
   }
   $scope.endDrag = function(evt){
-    var posX = Math.round(evt.originalEvent.screenX - $('#composite-block').offset().left);
-    var posY = Math.round(evt.originalEvent.screenY - ($('#composite-block').offset().top ));
-    CompositeBlockService.setNewInstancePosition(posX+50, posY-150);
+    if(!$scope.dropAllowed) return;
+    var pos = CompositeBlockService.getDragOverPosition();
+    CompositeBlockService.setNewInstancePosition(pos.x-50 , pos.y-50);
   }
-  $scope.$on('BLOCK_DELETED', function(){
-    var nextBlock;
-    var nextIndex = function(){
-      if (blkCopy.ngIndex <= 0) return blkCopy.ngIndex + 1;
-      else return blkCopy.ngIndex - 1;
-    }
-    if (blkCopy.changeType){
-      if (blkCopy.type === 'Basic') nextBlock = $scope.compositeBlocks[0];
-      else nextBlock = $scope.basicBlocks[0];
-    }else{
-      if(blkCopy.type === 'Basic') nextBlock = $scope.basicBlocks[nextIndex()];
-      else nextBlock = $scope.compositeBlocks[nextIndex()];
-    }
-    blkCopy = {};
-    if(typeof nextBlock === 'undefined'){
-      $scope.$emit('DEFAULT_VIEW');
-      return;
-    }
-    $scope.treeSelected(nextBlock);
-  });
   $scope.copyBlock = function(block){
-    ProjectService.setCurrentBlockName(block.name);
+    ProjectService.setCopyingBlock(block);
     ModalService.openModal('copyBlock');
   }
   $scope.openBlockDescription = function(block){
@@ -291,13 +239,58 @@ editorApp.controller('SidebarCtrl',
   }
   $scope.generalFilter = function (rowBlock) {
       if ($scope.searchBlock.name === undefined) return true;      
-      if (rowBlock.name.toLowerCase().indexOf($scope.searchBlock.name.toLowerCase()) !== -1 || rowBlock.description.toLowerCase().indexOf($scope.searchBlock.name.toLowerCase()) !== -1 || rowBlock.tags.toLowerCase().indexOf($scope.searchBlock.name.toLowerCase()) !== -1 || rowBlock.id.toString().indexOf($scope.searchBlock.name) !== -1) {
+      if (rowBlock.name.toLowerCase().indexOf($scope.searchBlock.name.toLowerCase()) !== -1 || $sce.valueOf(rowBlock.description).toLowerCase().indexOf($scope.searchBlock.name.toLowerCase()) !== -1 || rowBlock.tags.toLowerCase().indexOf($scope.searchBlock.name.toLowerCase()) !== -1 || rowBlock.id.toString().indexOf($scope.searchBlock.name) !== -1) {
           return true
       }else{
           return false;
       }
   }
-  $scope.$on("SETTING", function(event, data){
-      $scope.displayBlckId = data.BlockIdOn;
+  var checkForDescription = function(setting){
+    if (!setting.descriptionOn){
+      var allDescriptions = $('div').find('[uib-popover-html]');
+      _.each(allDescriptions, function(d){
+        var cnt = $(d).contents();
+        $(d).replaceWith(cnt);
+      })
+    }else if(setting.descriptionOn){
+      var allBlocks = $('.has-popover');
+      _.each(allBlocks, function(b){
+        var inners = $(b).contents();
+        $(b).empty();
+        $(b).append('<div uib-popover-html="bb.description" popover-trigger="mouseenter" popover-placement="right" popover-append-to-body="true"></div>');
+        $(b).first().append(inners);
+      })
+    }
+  }
+  $scope.$on("SETTING", function(){
+      setAccountSettings();
   });
+  var setAccountSettings = function (){
+      var currentSetting = ProjectService.getAccountSetting();
+      if(currentSetting){
+          try{
+              currentSetting = JSON.parse(currentSetting);
+          }catch(err){
+              currentSetting = {
+                  blockIdOn: false,
+                  tooltipOn: false,
+                  descriptionOn: true
+              }
+          }         
+      }else{
+          currentSetting = {
+                blockIdOn: false,
+                tooltipOn: false,
+                descriptionOn: true
+          }
+      }
+      $scope.displayBlckId = currentSetting.blockIdOn;
+      checkForDescription(currentSetting);
+  }
+  $scope.$on('DROP_TRUE', function(){
+    $scope.dropAllowed = true;
+  })
+  $scope.$on('DROP_FALSE', function(){
+    $scope.dropAllowed = false;
+  })
 }]);
